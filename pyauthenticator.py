@@ -12,23 +12,42 @@ import hmac
 
 def usage():
     print("pyauthenticator.py [-s|--secret SECRET]\n")
-    print("  -s, --secret\t Your base-32 encoded secret. If not supplied, the environment variable GOOGLE_AUTH_SECRET is used")
+    print("  -s, --secret\t Your base-32 encoded secret.")
+    print("\t\t If not supplied, the environment variable GOOGLE_AUTH_SECRET is used")
     print("  -h, --help\t This help message\n")
     
 
 def auth_code(secret):
+    if not secret:
+        usage()
+        exit(1)
     key = base64.b32decode(secret)
 
+    # The message we pass into the hmac is the current UNIX time, divided by 30
+    # Converted into a 64-bit bytearray in big-endian
     message = math.floor(time.time() / 30).to_bytes(8, byteorder='big')
+
+    # Seed a SHA-1 HMAC with the message and the secret key
     ghmac = hmac.new(key, message, hashlib.sha1)
+
+    # Take the digest of the hmac and convert to a bytearray
     digest = bytearray(ghmac.digest())
+
+    # The offset where we take the integer is determined from the last nibble
+    # of the digest
     offset = digest[-1] & 0xF
     digest = digest[offset:]
-    digest[0] = digest[0] & 0x7F
-    authcode = int.from_bytes(digest[0:4], byteorder="big")
-    #authcode = digest[0] << 24 | digest[1] << 16 | digest[2] << 8 | digest[3]
 
-    authcode = authcode % 1000000
+    # Set the first bit of the digest to 0
+    digest[0] &= 0x7F
+
+    # Convert the bits of the digest, from offest to offset+4 to an integer
+    authcode = int.from_bytes(digest[0:4], byteorder="big")
+
+    # Take the integer modulo 1 million to give us a 5 or 6 digit number
+    authcode %= 1000000
+
+    # If the number is only 5 digits, a leading 0 is added to make it 6 digits
     if len(str(authcode)) != 6:
         authcode =  str(authcode).rjust(6, '0')
     return authcode
